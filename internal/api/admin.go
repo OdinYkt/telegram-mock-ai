@@ -203,7 +203,32 @@ func (a *AdminServer) handleListChatMessages(w http.ResponseWriter, r *http.Requ
 			limit = l
 		}
 	}
-	messages := a.store.GetChatMessages(chatID, limit)
+	// Fetch a wider window when filtering so ?from=bot still returns up to `limit` matches.
+	fetchLimit := limit
+	fromFilter := r.URL.Query().Get("from")
+	if fromFilter == "bot" || fromFilter == "user" {
+		fetchLimit = limit * 20
+		if fetchLimit < 200 {
+			fetchLimit = 200
+		}
+	}
+	messages := a.store.GetChatMessages(chatID, fetchLimit)
+	if fromFilter == "bot" || fromFilter == "user" {
+		filtered := make([]models.Message, 0, len(messages))
+		for _, m := range messages {
+			isBot := m.From != nil && m.From.IsBot
+			if fromFilter == "bot" && isBot {
+				filtered = append(filtered, m)
+			}
+			if fromFilter == "user" && !isBot {
+				filtered = append(filtered, m)
+			}
+		}
+		if len(filtered) > limit {
+			filtered = filtered[len(filtered)-limit:]
+		}
+		messages = filtered
+	}
 	respondJSON(w, http.StatusOK, messages)
 }
 
